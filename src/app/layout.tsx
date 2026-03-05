@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Whisper',
+  title: 'whisper',
   description: 'Free online image utility. No uploads required.',
   icons: {
     icon: '/favicon.svg',
