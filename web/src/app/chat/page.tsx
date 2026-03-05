@@ -18,6 +18,7 @@ export default function ChatPage() {
   const [theirPublicKey, setTheirPublicKey] = useState('')
   const [sharedSecret, setSharedSecret] = useState<Uint8Array | undefined>()
   const sharedSecretRef = useRef<Uint8Array | undefined>(undefined)
+  const onMessageRef = useRef<((msg: WakuMessage) => void) | null>(null)
   const [safetyNumber, setSafetyNumber] = useState('')
   const [safetyVerified, setSafetyVerified] = useState(false)
 
@@ -70,26 +71,30 @@ export default function ChatPage() {
       setSafetyNumber(safety)
 
       addLog('Connecting...twork...')
+      // Stable callback — always reads latest secret from ref
+      onMessageRef.current = async (wakuMsg: WakuMessage) => {
+        const currentSecret = sharedSecretRef.current
+        if (!currentSecret) return
+        const plaintext = await decryptMessage(wakuMsg.ciphertext, currentSecret, wakuMsg.id)
+        if (!plaintext) return
+        const stored: StoredMessage = {
+          id: wakuMsg.id,
+          from: wakuMsg.from,
+          ciphertext: wakuMsg.ciphertext,
+          timestamp: wakuMsg.timestamp,
+          type: wakuMsg.type,
+          fileName: wakuMsg.fileName,
+          mine: false
+        }
+        saveMessage(stored)
+        setMessages(prev => [...prev, { ...stored, _plaintext: plaintext } as StoredMessage & { _plaintext: string }])
+      }
+
       await wakuClient.connect(
         myPublicKey,
         theirPublicKey.trim(),
-        async (wakuMsg: WakuMessage) => {
-          const currentSecret = sharedSecretRef.current
-          if (!currentSecret) return
-          const plaintext = await decryptMessage(wakuMsg.ciphertext, currentSecret, wakuMsg.id)
-          if (!plaintext) return
-
-          const stored: StoredMessage = {
-            id: wakuMsg.id,
-            from: wakuMsg.from,
-            ciphertext: wakuMsg.ciphertext,
-            timestamp: wakuMsg.timestamp,
-            type: wakuMsg.type,
-            fileName: wakuMsg.fileName,
-            mine: false
-          }
-          saveMessage(stored)
-          setMessages(prev => [...prev, { ...stored, _plaintext: plaintext } as StoredMessage & { _plaintext: string }])
+        (wakuMsg: WakuMessage) => {
+          if (onMessageRef.current) onMessageRef.current(wakuMsg)
         }
       )
 

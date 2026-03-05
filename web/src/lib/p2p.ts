@@ -1,7 +1,3 @@
-// Gun.js P2P transport
-// Messages are encrypted before touching Gun — Gun only sees ciphertext
-// Gun syncs via WebRTC + public relay peers — no central server for messages
-
 export type P2PMessage = {
   id: string
   from: string
@@ -9,19 +5,6 @@ export type P2PMessage = {
   timestamp: number
   type: 'text' | 'image' | 'file'
   fileName?: string
-}
-
-type GunInstance = {
-  get: (key: string) => GunNode
-}
-
-type GunNode = {
-  get: (key: string) => GunNode
-  put: (data: unknown) => void
-  set: (data: unknown) => void
-  map: () => GunNode
-  on: (cb: (data: unknown, key: string) => void) => void
-  off: () => void
 }
 
 function getChannelId(myPubKey: string, theirPubKey: string): string {
@@ -35,10 +18,10 @@ function getChannelId(myPubKey: string, theirPubKey: string): string {
 }
 
 export class P2PChat {
-  private gun: GunInstance | null = null
-  private channel: GunNode | null = null
+  private gun: unknown = null
   private channelId: string = ''
   private seen = new Set<string>()
+  private onMessageCb: ((msg: P2PMessage) => void) | null = null
 
   async connect(
     myPubKey: string,
@@ -46,42 +29,51 @@ export class P2PChat {
     onMessage: (msg: P2PMessage) => void
   ): Promise<void> {
     this.channelId = getChannelId(myPubKey, theirPubKey)
+    this.onMessageCb = onMessage
 
-    // Dynamically import Gun (ESM)
     const Gun = (await import('gun')).default
 
-    // Public relay peers — no messages stored, just relayed
-    this.gun = new Gun({
+    this.gun = new (Gun as new (opts: unknown) => unknown)({
       peers: [
         'https://gun-manhattan.herokuapp.com/gun',
         'https://peer.wallie.io/gun',
+        'https://gundb-relay-mlccl.ondigitalocean.app/gun',
+        'https://plankton.school/gun',
       ]
-    }) as GunInstance
-
-    this.channel = this.gun.get('wspr').get(this.channelId)
-
-    // Listen for incoming messages
-    this.channel.map().on((data: unknown) => {
-      if (!data || typeof data !== 'object') return
-      const msg = data as P2PMessage
-      if (!msg.id || !msg.ciphertext) return
-      if (this.seen.has(msg.id)) return
-      this.seen.add(msg.id)
-      onMessage(msg)
     })
+
+    const g = this.gun as { get: (k: string) => unknown }
+
+    // Subscribe to all messages in channel
+    const channel = (g.get('wspr') as { get: (k: string) => unknown }).get(this.channelId)
+    
+    ;(channel as { map: () => { on: (cb: (data: unknown, key: string) => void) => void } })
+      .map()
+      .on((data: unknown, key: string) => {
+        if (!data || typeof data !== 'object') return
+        if (key === '_') return
+        const msg = data as P2PMessage
+        if (!msg.id || !msg.ciphertext || !msg.timestamp) return
+        if (this.seen.has(msg.id)) return
+        this.seen.add(msg.id)
+        if (this.onMessageCb) this.onMessageCb(msg)
+      })
   }
 
   async send(msg: P2PMessage): Promise<void> {
-    if (!this.channel) throw new Error('Not connected')
-    this.seen.add(msg.id) // Don't echo back to ourselves
-    this.channel.get(msg.id).put(msg as unknown as Parameters<GunNode['put']>[0])
+    if (!this.gun) throw new Error('Not connected')
+    this.seen.add(msg.id)
+    const g = this.gun as { get: (k: string) => unknown }
+    const channel = (g.get('wspr') as { get: (k: string) => unknown }).get(this.channelId)
+    ;(channel as { get: (k: string) => { put: (d: unknown) => void } })
+      .get(msg.id)
+      .put(msg)
   }
 
   disconnect(): void {
-    if (this.channel) this.channel.off()
     this.gun = null
-    this.channel = null
     this.seen.clear()
+    this.onMessageCb = null
   }
 
   isConnected(): boolean {
