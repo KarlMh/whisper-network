@@ -2,12 +2,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { generateKeyPair, deriveSharedSecret, exportPrivateKey, importPrivateKey, generateSafetyNumber } from '@/lib/keys'
 import { encryptMessage, decryptMessage, encryptFile, decryptFile, loadMessages, saveMessage, clearMessages, StoredMessage } from '@/lib/chat-crypto'
-import { P2PChat, P2PMessage as WakuMessage } from '@/lib/p2p'
+import { NostrChat, NostrMessage as WakuMessage } from '@/lib/nostr'
 import Link from 'next/link'
 
 type ConnectionStep = 'identity' | 'exchange' | 'connected'
 
-const wakuClient = new P2PChat()
+const wakuClient = new NostrChat()
 
 export default function ChatPage() {
   const [step, setStep] = useState<ConnectionStep>('identity')
@@ -100,7 +100,7 @@ export default function ChatPage() {
 
       setNetworkStatus('online')
       setStep('connected')
-      addLog(`Connected. Channel: ${wakuClient.getChannelId()}`)
+      addLog(`Connected. Channel: ${wakuClient.getChannelTag()}`)
       addLog(`Safety number: ${safety}`)
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Connection failed'}`)
@@ -214,7 +214,7 @@ export default function ChatPage() {
           <span className="text-zinc-500 text-xs tracking-widest uppercase">wspr / chat</span>
           {networkStatus === 'online' && (
             <span className="text-zinc-700 text-xs hidden sm:inline">
-              {wakuClient.getChannelId().slice(0, 30)}...
+              {wakuClient.getChannelTag().slice(0, 30)}...
             </span>
           )}
         </div>
@@ -421,11 +421,11 @@ export default function ChatPage() {
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Protocol</span>
-                  <span className="text-zinc-500 text-xs">Gun.js P2P</span>
+                  <span className="text-zinc-500 text-xs">Nostr</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Transport</span>
-                  <span className="text-zinc-500 text-xs">WebRTC + relay</span>
+                  <span className="text-zinc-500 text-xs">WebSocket relays</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Status</span>

@@ -10,8 +10,8 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "gun": "^0.2020.1241",
     "next": "16.1.6",
+    "nostr-tools": "^2.23.3",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
