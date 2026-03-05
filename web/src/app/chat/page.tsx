@@ -169,7 +169,7 @@ export default function ChatPage() {
     if (!sharedSecret) return
     const bytes = await decryptFile(msg.ciphertext, sharedSecret, msg.id)
     if (!bytes) return addLog('ERROR: Failed to decrypt image.')
-    const blob = new Blob([bytes], { type: 'image/png' })
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "image/png" })
     const url = URL.createObjectURL(blob)
     setMessages(prev => prev.map(m =>
       m.id === msg.id ? { ...m, _imageUrl: url } as StoredMessage & { _imageUrl: string } : m
@@ -180,7 +180,7 @@ export default function ChatPage() {
     if (!sharedSecret) return
     const bytes = await decryptFile(msg.ciphertext, sharedSecret, msg.id)
     if (!bytes) return addLog('ERROR: Failed to decrypt file.')
-    const blob = new Blob([bytes])
+    const blob = new Blob([bytes.buffer as ArrayBuffer])
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
