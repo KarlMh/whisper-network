@@ -135,7 +135,7 @@ export function generateCarrier(
     data[px * 4] = (data[px * 4] & 0xFE) | bits[i]
   }
 
-  return new ImageData(new Uint8ClampedArray(data.buffer), width, height)
+  return new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), width, height)
 }
 
 // Decode: regenerate the same noise canvas, extract LSBs in same scatter order
