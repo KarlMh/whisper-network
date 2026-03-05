@@ -57,28 +57,28 @@ export function loadContacts(myPubKey = ''): Contact[] {
   } catch { return [] }
 }
 
-export function saveContact(contact: Contact): void {
-  const contacts = loadContacts()
+export function saveContact(contact: Contact, myPubKey = ''): void {
+  const contacts = loadContacts(myPubKey)
   const existing = contacts.findIndex(c => c.publicKey === contact.publicKey)
   if (existing >= 0) {
     contacts[existing] = contact
   } else {
     contacts.push(contact)
   }
-  localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts))
+  localStorage.setItem(getContactsKey(myPubKey), JSON.stringify(contacts))
 }
 
-export function deleteContact(id: string): void {
-  const contacts = loadContacts().filter(c => c.id !== id)
-  localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts))
+export function deleteContact(id: string, myPubKey = ''): void {
+  const contacts = loadContacts(myPubKey).filter(c => c.id !== id)
+  localStorage.setItem(getContactsKey(myPubKey), JSON.stringify(contacts))
 }
 
-export function updateContactLastSeen(publicKey: string): void {
-  const contacts = loadContacts()
+export function updateContactLastSeen(publicKey: string, myPubKey = ''): void {
+  const contacts = loadContacts(myPubKey)
   const contact = contacts.find(c => c.publicKey === publicKey)
   if (contact) {
     contact.lastSeen = Date.now()
-    localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts))
+    localStorage.setItem(getContactsKey(myPubKey), JSON.stringify(contacts))
   }
 }
 
