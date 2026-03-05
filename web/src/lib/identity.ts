@@ -77,7 +77,7 @@ export async function decryptIdentity(fileBytes: Uint8Array, password: string): 
 
 // Download identity as .wspr file
 export function downloadIdentityFile(encryptedBytes: Uint8Array, filename = 'identity.wspr'): void {
-  const blob = new Blob([encryptedBytes], { type: 'application/octet-stream' })
+  const blob = new Blob([encryptedBytes.buffer as ArrayBuffer], { type: "application/octet-stream" })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
