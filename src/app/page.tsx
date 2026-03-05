@@ -3,17 +3,30 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { encode, decodeChannel } from '@/lib/steg'
 import { encrypt, decrypt, getTimeWindow } from '@/lib/crypto'
 import { stripExif } from '@/lib/exif'
+import { generateKeyPair, deriveSharedSecret, exportPrivateKey, importPrivateKey } from '@/lib/keys'
+import { encodeAudio, decodeAudio, getAudioCapacity } from '@/lib/audio'
+
+type KeyMode = 'password' | 'keyfile' | 'ecdh'
+type CarrierMode = 'image' | 'audio'
 
 export default function Home() {
   const [fileStatus, setFileStatus] = useState<'none' | 'loading' | 'ready'>('none')
   const [fileName, setFileName] = useState('')
   const [fileSize, setFileSize] = useState(0)
   const [imageDims, setImageDims] = useState({ w: 0, h: 0 })
+  const [carrierMode, setCarrierMode] = useState<CarrierMode>('image')
 
+  const [keyMode, setKeyMode] = useState<KeyMode>('password')
   const [password, setPassword] = useState('')
   const [keyfile, setKeyfile] = useState<Uint8Array | undefined>()
   const [keyfileName, setKeyfileName] = useState('')
-  const [keyMode, setKeyMode] = useState<'password' | 'keyfile'>('password')
+
+  // ECDH state
+  const [myPublicKey, setMyPublicKey] = useState('')
+  const [myPrivateKeyRaw, setMyPrivateKeyRaw] = useState('')
+  const [theirPublicKey, setTheirPublicKey] = useState('')
+  const [sharedSecret, setSharedSecret] = useState<Uint8Array | undefined>()
+  const [ecdhStatus, setEcdhStatus] = useState<'idle' | 'generated' | 'connected'>('idle')
 
   const [decoyPassword, setDecoyPassword] = useState('')
   const [decoyKeyfile, setDecoyKeyfile] = useState<Uint8Array | undefined>()
@@ -37,6 +50,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const keyfileInputRef = useRef<HTMLInputElement>(null)
   const decoyKeyfileInputRef = useRef<HTMLInputElement>(null)
+  const audioBufferRef = useRef<ArrayBuffer | null>(null)
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const addLog = (msg: string) => {
@@ -49,10 +63,16 @@ export default function Home() {
     setFileName('')
     setFileSize(0)
     setImageDims({ w: 0, h: 0 })
+    setCarrierMode('image')
     setPassword('')
     setKeyfile(undefined)
     setKeyfileName('')
     setKeyMode('password')
+    setMyPublicKey('')
+    setMyPrivateKeyRaw('')
+    setTheirPublicKey('')
+    setSharedSecret(undefined)
+    setEcdhStatus('idle')
     setDecoyPassword('')
     setDecoyKeyfile(undefined)
     setDecoyKeyfileName('')
@@ -65,6 +85,7 @@ export default function Home() {
     setDecodedVisible(false)
     setLog([])
     setStatus('cleared')
+    audioBufferRef.current = null
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (keyfileInputRef.current) keyfileInputRef.current.value = ''
     if (decoyKeyfileInputRef.current) decoyKeyfileInputRef.current.value = ''
@@ -113,6 +134,30 @@ export default function Home() {
     }
   }, [clearAll])
 
+  const handleGenerateKeyPair = async () => {
+    addLog('Generating keypair...')
+    const pair = await generateKeyPair()
+    const privRaw = await exportPrivateKey(pair.privateKey)
+    setMyPublicKey(pair.publicKeyRaw)
+    setMyPrivateKeyRaw(privRaw)
+    setEcdhStatus('generated')
+    addLog('Keypair generated. Share your public key.')
+  }
+
+  const handleDeriveSecret = async () => {
+    if (!myPrivateKeyRaw || !theirPublicKey.trim()) return addLog('ERROR: Need both keys.')
+    try {
+      addLog('Deriving shared secret...')
+      const privateKey = await importPrivateKey(myPrivateKeyRaw)
+      const secret = await deriveSharedSecret(privateKey, theirPublicKey.trim())
+      setSharedSecret(secret)
+      setEcdhStatus('connected')
+      addLog('Shared secret derived. Channel established.')
+    } catch {
+      addLog('ERROR: Invalid public key.')
+    }
+  }
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
@@ -120,6 +165,21 @@ export default function Home() {
     setDecoded('')
     setIntact(null)
     setLog([])
+
+    if (carrierMode === 'audio') {
+      const reader = new FileReader()
+      reader.onload = () => {
+        audioBufferRef.current = reader.result as ArrayBuffer
+        setFileName(f.name)
+        setFileSize(f.size)
+        setOutputName(f.name.replace(/\.[^.]+$/, ''))
+        setFileStatus('ready')
+        setStatus('ready')
+        addLog(`Loaded audio: ${f.name} — capacity ~${getAudioCapacity()} chars`)
+      }
+      reader.readAsArrayBuffer(f)
+      return
+    }
 
     const img = new Image()
     img.onload = () => {
@@ -165,7 +225,7 @@ export default function Home() {
     }
   }
 
-  const showDecoded = (text: string, isIntact: boolean) => {
+  const showDecodedMessage = (text: string, isIntact: boolean) => {
     setDecoded(text)
     setIntact(isIntact)
     setDecodedVisible(true)
@@ -174,22 +234,52 @@ export default function Home() {
     setBlurTimer(t)
   }
 
+  const getKeyParams = () => ({
+    pw: keyMode === 'password' ? password.trim() : '',
+    kf: keyMode === 'keyfile' ? keyfile : undefined,
+    ss: keyMode === 'ecdh' ? sharedSecret : undefined
+  })
+
   const handleEncode = async () => {
-    const canvas = canvasRef.current
-    if (!canvas || fileStatus !== 'ready') return addLog('ERROR: No image loaded.')
     if (!message.trim()) return addLog('ERROR: No payload.')
     if (keyMode === 'password' && !password.trim()) return addLog('ERROR: No key.')
     if (keyMode === 'keyfile' && !keyfile) return addLog('ERROR: No keyfile loaded.')
+    if (keyMode === 'ecdh' && !sharedSecret) return addLog('ERROR: ECDH channel not established.')
+
+    // Audio mode
+    if (carrierMode === 'audio') {
+      setStatus('processing')
+      addLog('Encrypting payload...')
+      try {
+        const { pw, kf, ss } = getKeyParams()
+        const encrypted = await encrypt(message.trim(), pw, kf, ss)
+        addLog('Encoding into audio...')
+        const blob = encodeAudio(encrypted)
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = (outputName.trim() || 'audio') + '.wav'
+        a.click()
+        setMessage('')
+        setPassword('')
+        addLog(`Saved: ${outputName.trim() || 'audio'}.wav`)
+        setStatus('done')
+      } catch (e: unknown) {
+        addLog(`ERROR: ${e instanceof Error ? e.message : 'Unknown error'}`)
+        setStatus('ready')
+      }
+      return
+    }
+
+    // Image mode
+    const canvas = canvasRef.current
+    if (!canvas || fileStatus !== 'ready') return addLog('ERROR: No image loaded.')
 
     setStatus('processing')
     addLog('Encrypting payload...')
 
     try {
-      const realEncrypted = await encrypt(
-        message.trim(),
-        keyMode === 'password' ? password.trim() : '',
-        keyMode === 'keyfile' ? keyfile : undefined
-      )
+      const { pw, kf, ss } = getKeyParams()
+      const realEncrypted = await encrypt(message.trim(), pw, kf, ss)
 
       const decoyEncrypted = (showDecoy && decoyMessage.trim())
         ? await encrypt(
@@ -202,7 +292,10 @@ export default function Home() {
       addLog('Encoding into image...')
       const ctx = canvas.getContext('2d')!
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const encoded = encode(imageData, realEncrypted, decoyEncrypted)
+
+      // Pass key to enable scatter pattern
+      const scatterKey = ss || kf || (pw ? new TextEncoder().encode(pw) : undefined)
+      const encoded = encode(imageData, realEncrypted, decoyEncrypted, scatterKey)
       ctx.putImageData(encoded, 0, 0)
 
       addLog('Stripping metadata...')
@@ -218,7 +311,7 @@ export default function Home() {
       setDecoyMessage('')
       setDecoyPassword('')
 
-      addLog(`Saved: ${outputName.trim() || 'image'}.png — window expires in ${timeWindow?.expiresIn ?? '?'}m`)
+      addLog(`Saved: ${outputName.trim() || 'image'}.png — window ${timeWindow?.expiresIn ?? '?'}m`)
       setStatus('done')
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Unknown error'}`)
@@ -227,10 +320,37 @@ export default function Home() {
   }
 
   const handleDecode = async () => {
-    const canvas = canvasRef.current
-    if (!canvas || fileStatus !== 'ready') return addLog('ERROR: No image loaded.')
     if (keyMode === 'password' && !password.trim()) return addLog('ERROR: No key.')
     if (keyMode === 'keyfile' && !keyfile) return addLog('ERROR: No keyfile loaded.')
+    if (keyMode === 'ecdh' && !sharedSecret) return addLog('ERROR: ECDH channel not established.')
+
+    // Audio decode
+    if (carrierMode === 'audio') {
+      if (!audioBufferRef.current) return addLog('ERROR: No audio loaded.')
+      setStatus('processing')
+      addLog('Extracting from audio...')
+      try {
+        const { pw, kf, ss } = getKeyParams()
+        const raw = decodeAudio(audioBufferRef.current)
+        const result = await decrypt(raw, pw, kf, ss)
+        if (result && result.message.trim().length > 0) {
+          showDecodedMessage(result.message, result.intact)
+          addLog(result.intact ? 'Done. Integrity verified.' : 'Done. WARNING: Integrity check failed.')
+          setStatus('done')
+          return
+        }
+        addLog('No data found.')
+        setStatus('ready')
+      } catch {
+        addLog('No data found.')
+        setStatus('ready')
+      }
+      return
+    }
+
+    // Image decode
+    const canvas = canvasRef.current
+    if (!canvas || fileStatus !== 'ready') return addLog('ERROR: No image loaded.')
 
     setStatus('processing')
     addLog('Extracting...')
@@ -238,26 +358,25 @@ export default function Home() {
     try {
       const ctx = canvas.getContext('2d')!
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const { pw, kf, ss } = getKeyParams()
+      const scatterKey = ss || kf || (pw ? new TextEncoder().encode(pw) : undefined)
 
-      const rawReal = decodeChannel(imageData, 0)
-      const rawDecoy = decodeChannel(imageData, 1)
+      const rawReal = decodeChannel(imageData, 0, scatterKey)
+      const rawDecoy = decodeChannel(imageData, 1, scatterKey)
 
-      const pw = keyMode === 'password' ? password.trim() : ''
-      const kf = keyMode === 'keyfile' ? keyfile : undefined
-
-      const realResult = await decrypt(rawReal, pw, kf)
+      const realResult = await decrypt(rawReal, pw, kf, ss)
       if (realResult !== null && realResult.message.trim().length > 0) {
-        showDecoded(realResult.message, realResult.intact)
+        showDecodedMessage(realResult.message, realResult.intact)
         addLog(realResult.intact
           ? 'Done. Integrity verified. Output visible for 30s.'
-          : 'Done. WARNING: Integrity check failed — image may have been tampered with.')
+          : 'Done. WARNING: Integrity check failed.')
         setStatus('done')
         return
       }
 
-      const decoyResult = await decrypt(rawDecoy, pw, kf)
+      const decoyResult = await decrypt(rawDecoy, pw, kf, ss)
       if (decoyResult !== null && decoyResult.message.trim().length > 0) {
-        showDecoded(decoyResult.message, decoyResult.intact)
+        showDecodedMessage(decoyResult.message, decoyResult.intact)
         addLog(decoyResult.intact
           ? 'Done. Integrity verified. Output visible for 30s.'
           : 'Done. WARNING: Integrity check failed.')
@@ -274,7 +393,9 @@ export default function Home() {
   }
 
   const isEncodeMode = message.trim().length > 0
-  const capacity = Math.floor((imageDims.w * imageDims.h) / 8)
+  const capacity = carrierMode === 'audio'
+    ? getAudioCapacity()
+    : Math.floor((imageDims.w * imageDims.h) / 8)
   const capacityUsed = capacity > 0 ? Math.min(100, (message.length / capacity) * 100) : 0
 
   return (
@@ -289,8 +410,7 @@ export default function Home() {
             status === 'processing' ? 'bg-yellow-500' :
             status === 'done' ? 'bg-zinc-400' :
             status === 'cleared' ? 'bg-zinc-700' :
-            'bg-zinc-600'}`}
-          />
+            'bg-zinc-600'}`} />
           <span className="text-zinc-500 text-xs tracking-widest uppercase">
             Image Utility v1.0
           </span>
@@ -310,57 +430,88 @@ export default function Home() {
         {/* Left panel */}
         <div className="w-96 border-r border-zinc-800 flex flex-col overflow-y-auto">
 
-          {/* Image input */}
+          {/* Carrier mode */}
           <div className="border-b border-zinc-800 p-4">
-            <p className="text-zinc-600 text-xs uppercase tracking-widest mb-2">Input Image</p>
-            <label className={`block border p-4 cursor-pointer transition-all text-center
-              ${fileStatus === 'ready' ? 'border-zinc-600 bg-zinc-900' :
-                fileStatus === 'loading' ? 'border-zinc-700' :
-                'border-zinc-800 hover:border-zinc-700'}`}>
-              {fileStatus === 'none' && (
-                <span className="text-zinc-600 text-xs">Select PNG file</span>
-              )}
-              {fileStatus === 'loading' && (
-                <span className="text-zinc-500 text-xs">Loading...</span>
-              )}
-              {fileStatus === 'ready' && (
-                <div>
-                  <span className="text-zinc-400 text-xs block truncate">{fileName}</span>
-                  <span className="text-zinc-600 text-xs">
-                    {imageDims.w}x{imageDims.h} — {(fileSize / 1024).toFixed(1)} KB
-                  </span>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png"
-                onChange={handleFile}
-                className="hidden"
-              />
-            </label>
+            <p className="text-zinc-600 text-xs uppercase tracking-widest mb-2">Carrier</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setCarrierMode('image'); setFileStatus('none'); setLog([]) }}
+                className={`flex-1 text-xs py-1.5 border transition-all ${
+                  carrierMode === 'image'
+                    ? 'border-zinc-500 text-zinc-300'
+                    : 'border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
+                Image
+              </button>
+              <button
+                onClick={() => { setCarrierMode('audio'); setFileStatus('none'); setLog([]) }}
+                className={`flex-1 text-xs py-1.5 border transition-all ${
+                  carrierMode === 'audio'
+                    ? 'border-zinc-500 text-zinc-300'
+                    : 'border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
+                Audio
+              </button>
+            </div>
           </div>
+
+          {/* File input — only for image decode or audio decode */}
+          {(carrierMode === 'image' || carrierMode === 'audio') && (
+            <div className="border-b border-zinc-800 p-4">
+              <p className="text-zinc-600 text-xs uppercase tracking-widest mb-2">
+                {carrierMode === 'audio' ? 'Input Audio (decode only)' : 'Input Image'}
+              </p>
+              <label className={`block border p-4 cursor-pointer transition-all text-center
+                ${fileStatus === 'ready' ? 'border-zinc-600 bg-zinc-900' :
+                  fileStatus === 'loading' ? 'border-zinc-700' :
+                  'border-zinc-800 hover:border-zinc-700'}`}>
+                {fileStatus === 'none' && (
+                  <span className="text-zinc-600 text-xs">
+                    {carrierMode === 'audio' ? 'Select WAV file to decode' : 'Select PNG file'}
+                  </span>
+                )}
+                {fileStatus === 'loading' && (
+                  <span className="text-zinc-500 text-xs">Loading...</span>
+                )}
+                {fileStatus === 'ready' && (
+                  <div>
+                    <span className="text-zinc-400 text-xs block truncate">{fileName}</span>
+                    <span className="text-zinc-600 text-xs">
+                      {carrierMode === 'image'
+                        ? `${imageDims.w}x${imageDims.h} — ${(fileSize / 1024).toFixed(1)} KB`
+                        : `${(fileSize / 1024).toFixed(1)} KB`}
+                    </span>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={carrierMode === 'audio' ? 'audio/wav' : 'image/png'}
+                  onChange={handleFile}
+                  className="hidden"
+                />
+              </label>
+              {carrierMode === 'audio' && (
+                <p className="text-zinc-800 text-xs mt-2">
+                  For encoding, audio carrier is generated automatically.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Key method */}
           <div className="border-b border-zinc-800 p-4">
             <p className="text-zinc-600 text-xs uppercase tracking-widest mb-2">Key Method</p>
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setKeyMode('password')}
-                className={`flex-1 text-xs py-1.5 border transition-all ${
-                  keyMode === 'password'
-                    ? 'border-zinc-500 text-zinc-300'
-                    : 'border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
-                Password
-              </button>
-              <button
-                onClick={() => setKeyMode('keyfile')}
-                className={`flex-1 text-xs py-1.5 border transition-all ${
-                  keyMode === 'keyfile'
-                    ? 'border-zinc-500 text-zinc-300'
-                    : 'border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
-                Keyfile
-              </button>
+            <div className="flex gap-1 mb-3">
+              {(['password', 'keyfile', 'ecdh'] as KeyMode[]).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setKeyMode(m)}
+                  className={`flex-1 text-xs py-1.5 border transition-all ${
+                    keyMode === m
+                      ? 'border-zinc-500 text-zinc-300'
+                      : 'border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
+                  {m === 'ecdh' ? 'ECDH' : m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
             </div>
 
             {keyMode === 'password' && (
@@ -381,9 +532,7 @@ export default function Home() {
                 <span className="text-xs text-zinc-500 block truncate">
                   {keyfileName || 'Select any file as key'}
                 </span>
-                {keyfileName && (
-                  <span className="text-zinc-700 text-xs">Click to change</span>
-                )}
+                {keyfileName && <span className="text-zinc-700 text-xs">Click to change</span>}
                 <input
                   ref={keyfileInputRef}
                   type="file"
@@ -391,6 +540,59 @@ export default function Home() {
                   className="hidden"
                 />
               </label>
+            )}
+
+            {keyMode === 'ecdh' && (
+              <div className="flex flex-col gap-2">
+                {ecdhStatus === 'idle' && (
+                  <button
+                    onClick={handleGenerateKeyPair}
+                    className="w-full border border-zinc-700 text-zinc-400 text-xs py-2 hover:bg-zinc-900 transition-all">
+                    Generate Keypair
+                  </button>
+                )}
+
+                {ecdhStatus !== 'idle' && (
+                  <>
+                    <p className="text-zinc-700 text-xs">Your public key — share this:</p>
+                    <div className="bg-zinc-900 border border-zinc-800 p-2 break-all">
+                      <p className="text-zinc-500 text-xs font-mono leading-relaxed">
+                        {myPublicKey.slice(0, 40)}...
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(myPublicKey)}
+                      className="text-xs text-zinc-600 hover:text-zinc-400 border border-zinc-800 py-1 transition-all">
+                      Copy public key
+                    </button>
+
+                    <p className="text-zinc-700 text-xs mt-1">Their public key:</p>
+                    <textarea
+                      value={theirPublicKey}
+                      onChange={e => setTheirPublicKey(e.target.value)}
+                      placeholder="Paste their public key..."
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-2 focus:outline-none focus:border-zinc-600 resize-none h-16 placeholder-zinc-800"
+                    />
+
+                    {ecdhStatus === 'generated' && (
+                      <button
+                        onClick={handleDeriveSecret}
+                        disabled={!theirPublicKey.trim()}
+                        className="w-full border border-zinc-600 text-zinc-300 text-xs py-2 hover:bg-zinc-900 transition-all disabled:opacity-30">
+                        Establish Channel
+                      </button>
+                    )}
+
+                    {ecdhStatus === 'connected' && (
+                      <p className="text-zinc-600 text-xs text-center py-1">
+                        Channel established
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
 
@@ -424,69 +626,73 @@ export default function Home() {
                 spellCheck={false}
                 className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-3 focus:outline-none focus:border-zinc-600"
               />
-              <span className="text-zinc-700 text-xs">.png</span>
+              <span className="text-zinc-700 text-xs">
+                {carrierMode === 'audio' ? '.wav' : '.png'}
+              </span>
             </div>
           </div>
 
-          {/* Deniability layer */}
-          <div className="border-b border-zinc-800">
-            <button
-              onClick={() => setShowDecoy(v => !v)}
-              className="w-full text-left px-4 py-3 text-zinc-700 text-xs hover:text-zinc-500 transition-all uppercase tracking-widest">
-              {showDecoy ? '- Deniability layer' : '+ Deniability layer'}
-            </button>
+          {/* Deniability — image only */}
+          {carrierMode === 'image' && (
+            <div className="border-b border-zinc-800">
+              <button
+                onClick={() => setShowDecoy(v => !v)}
+                className="w-full text-left px-4 py-3 text-zinc-700 text-xs hover:text-zinc-500 transition-all uppercase tracking-widest">
+                {showDecoy ? '- Deniability layer' : '+ Deniability layer'}
+              </button>
 
-            {showDecoy && (
-              <div className="px-4 pb-4 flex flex-col gap-3 border-t border-zinc-800 pt-3">
-                <p className="text-zinc-700 text-xs">
-                  Alternate payload — revealed with alternate key
-                </p>
-                <textarea
-                  value={decoyMessage}
-                  onChange={e => setDecoyMessage(e.target.value)}
-                  placeholder="Cover payload..."
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-3 focus:outline-none focus:border-zinc-700 resize-none h-20 placeholder-zinc-800"
-                />
-                {keyMode === 'password' ? (
-                  <input
-                    type="password"
-                    value={decoyPassword}
-                    onChange={e => setDecoyPassword(e.target.value)}
-                    placeholder="Alternate key"
+              {showDecoy && (
+                <div className="px-4 pb-4 flex flex-col gap-3 border-t border-zinc-800 pt-3">
+                  <p className="text-zinc-700 text-xs">
+                    Alternate payload — revealed with alternate key
+                  </p>
+                  <textarea
+                    value={decoyMessage}
+                    onChange={e => setDecoyMessage(e.target.value)}
+                    placeholder="Cover payload..."
                     autoComplete="off"
-                    className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-3 focus:outline-none focus:border-zinc-700 placeholder-zinc-800"
+                    spellCheck={false}
+                    className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-3 focus:outline-none focus:border-zinc-700 resize-none h-20 placeholder-zinc-800"
                   />
-                ) : (
-                  <label className={`block border p-3 cursor-pointer text-center transition-all
-                    ${decoyKeyfileName ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 hover:border-zinc-700'}`}>
-                    <span className="text-xs text-zinc-600 block truncate">
-                      {decoyKeyfileName || 'Select alternate keyfile'}
-                    </span>
+                  {keyMode === 'password' ? (
                     <input
-                      ref={decoyKeyfileInputRef}
-                      type="file"
-                      onChange={e => handleKeyfile(e, true)}
-                      className="hidden"
+                      type="password"
+                      value={decoyPassword}
+                      onChange={e => setDecoyPassword(e.target.value)}
+                      placeholder="Alternate key"
+                      autoComplete="off"
+                      className="w-full bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs p-3 focus:outline-none focus:border-zinc-700 placeholder-zinc-800"
                     />
-                  </label>
-                )}
-              </div>
-            )}
-          </div>
+                  ) : (
+                    <label className={`block border p-3 cursor-pointer text-center transition-all
+                      ${decoyKeyfileName ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 hover:border-zinc-700'}`}>
+                      <span className="text-xs text-zinc-600 block truncate">
+                        {decoyKeyfileName || 'Select alternate keyfile'}
+                      </span>
+                      <input
+                        ref={decoyKeyfileInputRef}
+                        type="file"
+                        onChange={e => handleKeyfile(e, true)}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="p-4 flex gap-2">
             <button
               onClick={handleDecode}
-              disabled={status === 'processing' || fileStatus !== 'ready'}
+              disabled={status === 'processing' || (carrierMode === 'image' && fileStatus !== 'ready') || (carrierMode === 'audio' && !audioBufferRef.current)}
               className="flex-1 py-3 text-xs uppercase tracking-widest border border-zinc-700 text-zinc-400 hover:bg-zinc-900 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               Decode
             </button>
             <button
               onClick={handleEncode}
-              disabled={status === 'processing' || fileStatus !== 'ready' || !isEncodeMode}
+              disabled={status === 'processing' || !isEncodeMode || (carrierMode === 'image' && fileStatus !== 'ready')}
               className="flex-1 py-3 text-xs uppercase tracking-widest border border-zinc-400 text-zinc-200 hover:bg-zinc-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               {status === 'processing' ? 'Working...' : 'Encode'}
             </button>
@@ -542,20 +748,21 @@ export default function Home() {
           </div>
 
           {/* Capacity bar */}
-          {fileStatus === 'ready' && (
-            <div className="border-b border-zinc-800 px-6 py-3">
-              <div className="flex justify-between text-xs text-zinc-600 mb-1">
-                <span>Capacity</span>
-                <span>{message.length} / ~{capacity} chars</span>
-              </div>
-              <div className="w-full bg-zinc-900 h-px">
-                <div
-                  className={`h-px transition-all ${capacityUsed > 90 ? 'bg-red-800' : 'bg-zinc-600'}`}
-                  style={{ width: `${capacityUsed}%` }}
-                />
-              </div>
+          <div className="border-b border-zinc-800 px-6 py-3">
+            <div className="flex justify-between text-xs text-zinc-600 mb-1">
+              <span>Capacity</span>
+              <span>
+                {message.length} / ~{capacity} chars
+                {carrierMode === 'image' && fileStatus !== 'ready' && ' (load image)'}
+              </span>
             </div>
-          )}
+            <div className="w-full bg-zinc-900 h-px">
+              <div
+                className={`h-px transition-all ${capacityUsed > 90 ? 'bg-red-800' : 'bg-zinc-600'}`}
+                style={{ width: `${capacityUsed}%` }}
+              />
+            </div>
+          </div>
 
           {/* Log */}
           <div className="h-48 p-4 overflow-y-auto">
@@ -579,7 +786,7 @@ export default function Home() {
       <div className="border-t border-zinc-800 px-6 py-2 flex items-center justify-between">
         <span className="text-zinc-700 text-xs">
           {status === 'idle' && 'Ready'}
-          {status === 'ready' && 'Image loaded'}
+          {status === 'ready' && 'Loaded'}
           {status === 'processing' && 'Processing...'}
           {status === 'done' && (isEncodeMode ? 'Encode complete' : 'Decode complete')}
           {status === 'cleared' && 'Cleared'}
@@ -591,7 +798,7 @@ export default function Home() {
             </span>
           )}
           <span className="text-zinc-800 text-xs">
-            AES-256-GCM / LSB / PBKDF2 / EXIF-stripped
+            AES-256-GCM / LSB-scatter / PBKDF2 / ECDH
           </span>
         </div>
       </div>
@@ -600,4 +807,3 @@ export default function Home() {
     </main>
   )
 }
-
