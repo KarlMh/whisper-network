@@ -58,15 +58,15 @@ export class NostrChat {
     this.pool = new SimplePool()
 
     // Subscribe to messages on our channel tag
+    const filter = {
+      kinds: [WSPR_KIND],
+      '#t': [this.channelTag],
+      since: Math.floor(Date.now() / 1000) - 60,
+    }
     this.sub = this.pool.subscribeMany(
       RELAYS,
-      [
-        {
-          kinds: [WSPR_KIND],
-          '#t': [this.channelTag],
-          since: Math.floor(Date.now() / 1000) - 60, // Last 60 seconds on connect
-        }
-      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [filter as any],
       {
         onevent: (event: Event) => {
           if (this.seen.has(event.id)) return
