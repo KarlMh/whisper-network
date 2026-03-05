@@ -17,7 +17,7 @@ export default function ChatPage() {
   const [myPrivateKeyRaw, setMyPrivateKeyRaw] = useState('')
   const [theirPublicKey, setTheirPublicKey] = useState('')
   const [sharedSecret, setSharedSecret] = useState<Uint8Array | undefined>()
-  const sharedSecretRef = useRef<Uint8Array | undefined>()
+  const sharedSecretRef = useRef<Uint8Array | undefined>(undefined)
   const [safetyNumber, setSafetyNumber] = useState('')
   const [safetyVerified, setSafetyVerified] = useState(false)
 
