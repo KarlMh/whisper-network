@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Whisper Network
 
-## Getting Started
+Hide encrypted messages inside ordinary images using steganography. No servers. No accounts. No traces.
 
-First, run the development server:
+Built for journalists, activists, and anyone who needs private communication that doesn't look like private communication.
 
+## How it works
+
+1. Load any PNG image
+2. Type your message and set a key (password or keyfile)
+3. The message is AES-256 encrypted then hidden inside the image pixels
+4. Share the image anywhere — it looks completely normal
+5. Recipient loads the image, enters the key, message is revealed
+
+## Security features
+
+- **AES-256-GCM encryption** — military grade
+- **LSB steganography** — hidden in pixel data, invisible to the naked eye
+- **Temporal keys** — messages expire after ~2 hours automatically
+- **Keyfile support** — use any file as a key instead of a password
+- **Deniability layer** — embed a decoy message revealed with a different key
+- **EXIF stripping** — camera metadata scrubbed from every output image
+- **Auto-clear** — session wipes after 5 minutes of inactivity
+- **Panic clear** — press ESC twice to instantly wipe everything
+- **No server** — everything runs in your browser, nothing is uploaded anywhere
+
+## Run locally
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Next.js 15
+- Tailwind CSS
+- Web Crypto API (AES-256-GCM, PBKDF2)
+- Custom LSB steganography engine
 
-## Learn More
+## License
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT

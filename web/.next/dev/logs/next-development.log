@@ -1,0 +1,19 @@
+[00:13:43.418] Server  ERROR   ⨯ TurbopackInternalError: Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "get_written_endpoint_with_issues_operation", global_name: "next-swc-napi@next_swc_napi::next_api::endpoint::get_written_endpoint_with_issues_operation", .. }, this: None, arg: (OperationVc { node: RawVc::TaskOutput(215) },) } from database failed
+
+Debug info:
+- Failed to lookup task id: Looking up task id for CachedTaskType { native_fn: NativeFunction { name: "get_written_endpoint_with_issues_operation", global_name: "next-swc-napi@next_swc_napi::next_api::endpoint::get_written_endpoint_with_issues_operation", .. }, this: None, arg: (OperationVc { node: RawVc::TaskOutput(215) },) } from database failed
+  
+  Caused by:
+      0: Unable to open static sorted file referenced from 00000126.meta
+      1: Unable to open static sorted file 00000122.sst
+      2: No such file or directory (os error 2)
+[00:13:43.428] Server  ERROR   TurbopackInternalError: Failed to restore task data (corrupted database or bug): Meta for <DiskFileSystem as FileSystem>::read (TaskId 88224))
+
+Debug info:
+- Failed to restore task data (corrupted database or bug): Meta for <DiskFileSystem as FileSystem>::read (TaskId 88224))
+  
+  Caused by:
+      0: Looking up data for TaskId 88224 from database failed
+      1: Unable to open static sorted file referenced from 00000312.meta
+      2: Unable to open static sorted file 00000309.sst
+      3: No such file or directory (os error 2)
