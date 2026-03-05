@@ -13,6 +13,7 @@ export default function Landing() {
             className="text-zinc-600 hover:text-zinc-400 text-xs transition-all tracking-widest uppercase">
             GitHub
           </a>
+          <Link href="/chat" className="text-zinc-600 hover:text-zinc-400 text-xs transition-all tracking-widest uppercase mr-4">Chat</Link>
           <Link href="/app"
             className="text-xs uppercase tracking-widest border border-zinc-600 hover:border-zinc-400 text-zinc-300 px-4 py-1.5 transition-all">
             Launch
@@ -43,7 +44,8 @@ export default function Landing() {
           Not just unreadable — invisible. Your message doesn't exist until the right key is applied.
         </p>
 
-        <Link href="/app"
+        <Link href="/chat" className="text-zinc-600 hover:text-zinc-400 text-xs transition-all tracking-widest uppercase mr-4">Chat</Link>
+          <Link href="/app"
           className="text-sm uppercase tracking-widest border border-zinc-400 hover:border-zinc-200 text-zinc-200 hover:text-white px-8 py-3 transition-all">
           Open wspr →
         </Link>
@@ -160,7 +162,8 @@ export default function Landing() {
       {/* Footer */}
       <footer className="border-t border-zinc-900 px-6 py-6 flex items-center justify-between">
         <span className="text-zinc-800 text-xs">wspr — steganography utility</span>
-        <Link href="/app"
+        <Link href="/chat" className="text-zinc-600 hover:text-zinc-400 text-xs transition-all tracking-widest uppercase mr-4">Chat</Link>
+          <Link href="/app"
           className="text-zinc-700 hover:text-zinc-400 text-xs transition-all uppercase tracking-widest">
           Launch tool →
         </Link>
