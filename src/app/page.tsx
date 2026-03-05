@@ -25,6 +25,7 @@ export default function Home() {
   const [outputName, setOutputName] = useState('')
 
   const [decoded, setDecoded] = useState('')
+  const [intact, setIntact] = useState<boolean | null>(null)
   const [decodedVisible, setDecodedVisible] = useState(false)
   const [blurTimer, setBlurTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
 
@@ -60,6 +61,7 @@ export default function Home() {
     setMessage('')
     setOutputName('')
     setDecoded('')
+    setIntact(null)
     setDecodedVisible(false)
     setLog([])
     setStatus('cleared')
@@ -76,7 +78,6 @@ export default function Home() {
     setTimeout(() => setStatus('idle'), 2000)
   }, [])
 
-  // Time window ticker
   useEffect(() => {
     const update = () => setTimeWindow(getTimeWindow())
     update()
@@ -84,7 +85,6 @@ export default function Home() {
     return () => clearInterval(interval)
   }, [])
 
-  // ESC x2 panic
   useEffect(() => {
     let lastEsc = 0
     const handleKey = (e: KeyboardEvent) => {
@@ -98,7 +98,6 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [clearAll])
 
-  // Auto-clear 5 min inactivity
   useEffect(() => {
     const reset = () => {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
@@ -119,6 +118,7 @@ export default function Home() {
     if (!f) return
     setFileStatus('loading')
     setDecoded('')
+    setIntact(null)
     setLog([])
 
     const img = new Image()
@@ -165,8 +165,9 @@ export default function Home() {
     }
   }
 
-  const showDecoded = (text: string) => {
+  const showDecoded = (text: string, isIntact: boolean) => {
     setDecoded(text)
+    setIntact(isIntact)
     setDecodedVisible(true)
     if (blurTimer) clearTimeout(blurTimer)
     const t = setTimeout(() => setDecodedVisible(false), 30000)
@@ -245,17 +246,21 @@ export default function Home() {
       const kf = keyMode === 'keyfile' ? keyfile : undefined
 
       const realResult = await decrypt(rawReal, pw, kf)
-      if (realResult !== null && realResult.trim().length > 0) {
-        showDecoded(realResult)
-        addLog('Done. Output visible for 30s.')
+      if (realResult !== null && realResult.message.trim().length > 0) {
+        showDecoded(realResult.message, realResult.intact)
+        addLog(realResult.intact
+          ? 'Done. Integrity verified. Output visible for 30s.'
+          : 'Done. WARNING: Integrity check failed — image may have been tampered with.')
         setStatus('done')
         return
       }
 
       const decoyResult = await decrypt(rawDecoy, pw, kf)
-      if (decoyResult !== null && decoyResult.trim().length > 0) {
-        showDecoded(decoyResult)
-        addLog('Done. Output visible for 30s.')
+      if (decoyResult !== null && decoyResult.message.trim().length > 0) {
+        showDecoded(decoyResult.message, decoyResult.intact)
+        addLog(decoyResult.intact
+          ? 'Done. Integrity verified. Output visible for 30s.'
+          : 'Done. WARNING: Integrity check failed.')
         setStatus('done')
         return
       }
@@ -512,7 +517,14 @@ export default function Home() {
             )}
 
             {decoded && status !== 'cleared' && (
-              <div className="border border-zinc-800 bg-zinc-900 p-4 relative">
+              <div className={`border bg-zinc-900 p-4 relative ${
+                intact === false ? 'border-red-900' : 'border-zinc-800'}`}>
+                {intact !== null && (
+                  <p className={`text-xs mb-3 uppercase tracking-widest ${
+                    intact ? 'text-zinc-700' : 'text-red-800'}`}>
+                    {intact ? 'integrity verified' : 'warning: possible tampering detected'}
+                  </p>
+                )}
                 <p className={`text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap break-words transition-all duration-500 select-none ${decodedVisible ? '' : 'blur-md'}`}>
                   {decoded}
                 </p>
@@ -553,7 +565,9 @@ export default function Home() {
             )}
             {log.map((entry, i) => (
               <p key={i} className={`text-xs mb-1 ${
-                entry.includes('ERROR') ? 'text-zinc-500' : 'text-zinc-600'}`}>
+                entry.includes('ERROR') || entry.includes('WARNING')
+                  ? 'text-zinc-500'
+                  : 'text-zinc-600'}`}>
                 {entry}
               </p>
             ))}

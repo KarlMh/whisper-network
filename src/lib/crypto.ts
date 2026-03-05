@@ -43,6 +43,15 @@ async function buildKeyMaterial(
   return new Uint8Array(hash)
 }
 
+// Compute SHA-256 hash of a string, return as hex
+async function hashMessage(message: string): Promise<string> {
+  const enc = new TextEncoder()
+  const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(message))
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
 export async function encrypt(
   message: string,
   password: string,
@@ -53,10 +62,14 @@ export async function encrypt(
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const key = await getKey(keyMaterial, salt)
 
+  // Append hash to message before encrypting
+  const hash = await hashMessage(message)
+  const payload = JSON.stringify({ m: message, h: hash })
+
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
-    new TextEncoder().encode(message)
+    new TextEncoder().encode(payload)
   )
 
   const combined = new Uint8Array(salt.length + iv.length + ciphertext.byteLength)
@@ -67,11 +80,16 @@ export async function encrypt(
   return btoa(String.fromCharCode(...combined))
 }
 
+export type DecryptResult = {
+  message: string
+  intact: boolean
+}
+
 export async function decrypt(
   encoded: string,
   password: string,
   keyfile?: Uint8Array
-): Promise<string | null> {
+): Promise<DecryptResult | null> {
   if (!encoded || encoded.trim().length === 0) return null
 
   let combined: Uint8Array
@@ -96,7 +114,21 @@ export async function decrypt(
         key,
         ciphertext
       )
-      return new TextDecoder().decode(decrypted)
+      const raw = new TextDecoder().decode(decrypted)
+
+      // Parse and verify integrity
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed.m && parsed.h) {
+          const expectedHash = await hashMessage(parsed.m)
+          const intact = expectedHash === parsed.h
+          return { message: parsed.m, intact }
+        }
+        // Legacy format — no hash
+        return { message: raw, intact: false }
+      } catch {
+        return { message: raw, intact: false }
+      }
     } catch {
       continue
     }
