@@ -10,11 +10,8 @@
     "format": "biome format --write"
   },
   "dependencies": {
-    "@waku/core": "^0.0.40",
-    "@waku/relay": "^0.0.23",
-    "@waku/sdk": "^0.0.36",
+    "gun": "^0.2020.1241",
     "next": "16.1.6",
-    "protobufjs": "^8.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

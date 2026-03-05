@@ -2,12 +2,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { generateKeyPair, deriveSharedSecret, exportPrivateKey, importPrivateKey, generateSafetyNumber } from '@/lib/keys'
 import { encryptMessage, decryptMessage, encryptFile, decryptFile, loadMessages, saveMessage, clearMessages, StoredMessage } from '@/lib/chat-crypto'
-import { WakuChat, WakuMessage } from '@/lib/waku'
+import { P2PChat, P2PMessage as WakuMessage } from '@/lib/p2p'
 import Link from 'next/link'
 
 type ConnectionStep = 'identity' | 'exchange' | 'connected'
 
-const wakuClient = new WakuChat()
+const wakuClient = new P2PChat()
 
 export default function ChatPage() {
   const [step, setStep] = useState<ConnectionStep>('identity')
@@ -67,7 +67,7 @@ export default function ChatPage() {
       setSharedSecret(secret)
       setSafetyNumber(safety)
 
-      addLog('Connecting to Waku network...')
+      addLog('Connecting...twork...')
       await wakuClient.connect(
         myPublicKey,
         theirPublicKey.trim(),
@@ -92,7 +92,7 @@ export default function ChatPage() {
 
       setNetworkStatus('online')
       setStep('connected')
-      addLog(`Connected. Topic: ${wakuClient.getContentTopic()}`)
+      addLog(`Connected. Channel: ${wakuClient.getChannelId()}`)
       addLog(`Safety number: ${safety}`)
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Connection failed'}`)
@@ -206,7 +206,7 @@ export default function ChatPage() {
           <span className="text-zinc-500 text-xs tracking-widest uppercase">wspr / chat</span>
           {networkStatus === 'online' && (
             <span className="text-zinc-700 text-xs hidden sm:inline">
-              {wakuClient.getContentTopic().slice(0, 30)}...
+              {wakuClient.getChannelId().slice(0, 30)}...
             </span>
           )}
         </div>
@@ -278,7 +278,7 @@ export default function ChatPage() {
                       onClick={handleConnect}
                       disabled={!theirPublicKey.trim() || connecting}
                       className="border border-zinc-400 text-zinc-200 text-xs py-3 uppercase tracking-widest hover:bg-zinc-800 transition-all disabled:opacity-30">
-                      {connecting ? 'Connecting to Waku...' : 'Connect'}
+                      {connecting ? 'Connecting...' : 'Connect'}
                     </button>
 
                     <p className="text-zinc-800 text-xs">
@@ -413,11 +413,11 @@ export default function ChatPage() {
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Protocol</span>
-                  <span className="text-zinc-500 text-xs">Waku v2</span>
+                  <span className="text-zinc-500 text-xs">Gun.js P2P</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Transport</span>
-                  <span className="text-zinc-500 text-xs">Light push</span>
+                  <span className="text-zinc-500 text-xs">WebRTC + relay</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-700 text-xs">Status</span>
