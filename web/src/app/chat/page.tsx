@@ -326,7 +326,7 @@ export default function ChatPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/app" className="text-zinc-700 hover:text-zinc-400 text-xs transition-all uppercase tracking-widest">← tool</Link>
+          <Link href="/app" className="text-zinc-700 hover:text-zinc-400 text-xs transition-all uppercase tracking-widest">← back</Link>
           {identity && (
             <>
               {screen !== 'settings' && (
