@@ -17,3 +17,12 @@ export async function decryptFromBytes(
   const encoded = btoa(String.fromCharCode(...bytes))
   return decrypt(encoded, password, keyfile, sharedSecret)
 }
+
+export async function decryptString(
+  encoded: string,
+  password: string,
+  keyfile?: Uint8Array,
+  sharedSecret?: Uint8Array
+): Promise<DecryptResult | null> {
+  return decrypt(encoded, password, keyfile, sharedSecret)
+}
