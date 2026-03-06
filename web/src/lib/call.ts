@@ -71,6 +71,9 @@ export class CallManager {
   private state: CallState = 'idle'
   private seenSignals = new Set<string>()
   private signalBuffer: string[] = []
+  private listenMyPubKey: string = ''
+  private listenSharedSecret: Uint8Array | null = null
+  private listenTheirPubKey: string = ''
   private audioContext: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private remoteAnalyser: AnalyserNode | null = null
@@ -91,6 +94,9 @@ export class CallManager {
     if (this.listenSub) { this.listenSub.close(); this.listenSub = null }
     if (this.listenPool) { this.listenPool.close(CALL_RELAYS); this.listenPool = null }
 
+    this.listenMyPubKey = myPubKey
+    this.listenSharedSecret = sharedSecret
+    this.listenTheirPubKey = theirPubKey
     this.listenPool = new SimplePool()
     const ringTag = getRingTag(myPubKey, theirPubKey)
     console.log("[CALL] listening for ring on tag:", ringTag, "my:", myPubKey.slice(0,8), "their:", theirPubKey.slice(0,8))
@@ -379,6 +385,12 @@ export class CallManager {
     this.seenSignals.clear()
     this.signalBuffer = []
     this._setState('ended')
+    // Auto-restart ring listener after call ends
+    if (this.listenMyPubKey && this.listenSharedSecret && this.listenTheirPubKey) {
+      setTimeout(() => {
+        this.listenForCalls(this.listenMyPubKey, this.listenSharedSecret!, this.listenTheirPubKey)
+      }, 1000)
+    }
   }
 
   getLocalStream(): MediaStream | null { return this.localStream }
