@@ -37,6 +37,7 @@ export default function ChatPage() {
   const [activeContact, setActiveContact] = useState<Contact | null>(null)
   const [sharedSecret, setSharedSecret] = useState<Uint8Array | undefined>()
   const sharedSecretRef = useRef<Uint8Array | undefined>(undefined)
+  const activeContactRef = useRef<Contact | null>(null)
   const onMessageRef = useRef<((msg: NostrMessage) => void) | null>(null)
   const [safetyNumber, setSafetyNumber] = useState('')
   const [safetyVerified, setSafetyVerified] = useState(false)
@@ -190,7 +191,7 @@ export default function ChatPage() {
 
   const handleOpenChat = async (contact: Contact) => {
     if (!identity) return
-    setActiveContact(contact); setConnecting(true)
+    setActiveContact(contact); activeContactRef.current = contact; setConnecting(true)
     setNetworkStatus('connecting'); setScreen('chat'); setMessages([])
     setSafetyVerified(false); setSendError('')
     try {
@@ -236,6 +237,15 @@ export default function ChatPage() {
             setCallState('idle')
           }, 1500)
         }
+        if (state === 'ended' || state === 'idle') {
+          // Auto-restart listener after any call ends
+          setTimeout(() => {
+            const id = getSessionIdentity()
+            if (id && activeContactRef.current && sharedSecretRef.current) {
+              callManager.listenForCalls(id.publicKey, sharedSecretRef.current, activeContactRef.current.publicKey)
+            }
+          }, 2000)
+        }
       }
       callManager.onRemoteStream = (stream) => {
         setRemoteStream(stream)
@@ -255,7 +265,7 @@ export default function ChatPage() {
     nostrClient.disconnect()
     callManager.stopListening()
     setConnected(false); setNetworkStatus('offline')
-    setActiveContact(null); setSharedSecret(undefined); sharedSecretRef.current = undefined
+    setActiveContact(null); activeContactRef.current = null; setSharedSecret(undefined); sharedSecretRef.current = undefined
     onMessageRef.current = null
     setMessages([])
     setCallState('idle'); setShowCall(false)
@@ -338,10 +348,10 @@ export default function ChatPage() {
               setCallState('idle')
               setShowCall(true)
               await callManager.startCall(identity.publicKey, activeContact.publicKey, sharedSecret, false)
-            }} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all">☎</button>
+            }} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-3 py-1.5 transition-all text-base">☎</button>
           )}
           {screen === 'chat' && (
-            <button onClick={() => setShowSidebar(v => !v)} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all text-xs">≡</button>
+            <button onClick={() => setShowSidebar(v => !v)} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-3 py-1.5 transition-all text-base">≡</button>
           )}
           {identity && screen !== 'settings' && screen !== 'chat' && (
             <button onClick={() => setScreen('settings')} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all text-xs hidden sm:block">SET</button>
@@ -652,15 +662,36 @@ export default function ChatPage() {
           remoteStream={remoteStream}
           onAnswer={async () => {
             if (!sharedSecret || !activeContact || !identity) return
+            if (!incomingCallId) return
+            setRemoteStream(null)
+            setCallDuration(0)
+            setLocalMuted(false)
             await callManager.answerCall(identity.publicKey, activeContact.publicKey, sharedSecret, incomingCallId, false)
           }}
-          onDecline={() => {
+          onDecline={async () => {
             callManager.hangup(identity?.publicKey||'', activeContact?.publicKey||'', sharedSecret || new Uint8Array())
             setShowCall(false)
             setCallState('idle')
+            setRemoteStream(null)
+            setCallDuration(0)
+            setLocalMuted(false)
+            setIncomingCallId('')
+            // Restart listener so future calls work
+            if (identity && activeContact && sharedSecret) {
+              await callManager.listenForCalls(identity.publicKey, sharedSecret, activeContact.publicKey)
+            }
           }}
-          onHangup={() => {
+          onHangup={async () => {
             callManager.hangup(identity?.publicKey||'', activeContact?.publicKey||'', sharedSecret || new Uint8Array())
+            setRemoteStream(null)
+            setCallDuration(0)
+            setLocalMuted(false)
+            // Restart listener so future calls work
+            if (identity && activeContact && sharedSecret) {
+              setTimeout(async () => {
+                await callManager.listenForCalls(identity.publicKey, sharedSecret, activeContact.publicKey)
+              }, 1500)
+            }
           }}
           onMute={() => {
             const stream = callManager.getLocalStream()
