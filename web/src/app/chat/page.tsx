@@ -14,6 +14,9 @@ import {
   type Contact, type StoredMessage
 } from '@/lib/storage'
 import Link from 'next/link'
+import { CallManager, CallState } from '@/lib/call'
+
+const callManager = new CallManager()
 
 type Screen = 'unlock' | 'contacts' | 'chat' | 'settings'
 const nostrClient = new NostrChat()
@@ -47,6 +50,16 @@ export default function ChatPage() {
   const [showSidebar, setShowSidebar] = useState(false)
   const [log, setLog] = useState<string[]>([])
   const [sendError, setSendError] = useState('')
+  const [callState, setCallState] = useState<CallState>('idle')
+  const [incomingCallId, setIncomingCallId] = useState('')
+  const [incomingCallFrom, setIncomingCallFrom] = useState('')
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [localMuted, setLocalMuted] = useState(false)
+  const [callDuration, setCallDuration] = useState(0)
+  const [showCall, setShowCall] = useState(false)
+  const localVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [hasNewMessage, setHasNewMessage] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -185,6 +198,34 @@ export default function ChatPage() {
       )
       setNetworkStatus('online'); setConnected(true)
       addLog(`Connected. Chatting with ${contact.name}.`)
+
+      // Listen for incoming calls
+      callManager.onIncomingCall = (callId, from) => {
+        setIncomingCallId(callId)
+        setIncomingCallFrom(from)
+        setCallState('receiving')
+        setShowCall(true)
+      }
+      callManager.onStateChange = (state) => {
+        setCallState(state)
+        if (state === 'connected') {
+          callTimerRef.current = setInterval(() => setCallDuration(d => d + 1), 1000)
+        }
+        if (state === 'ended') {
+          if (callTimerRef.current) clearInterval(callTimerRef.current)
+          setCallDuration(0)
+          setRemoteStream(null)
+          setTimeout(() => setShowCall(false), 1000)
+        }
+      }
+      callManager.onRemoteStream = (stream) => {
+        setRemoteStream(stream)
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream
+      }
+      callManager.onError = (err) => addLog(`CALL ERROR: ${err}`)
+      if (secret && contact) {
+        await callManager.listenForCalls(identity.publicKey, secret, contact.publicKey)
+      }
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Connection failed'}`)
       setNetworkStatus('offline')
@@ -261,6 +302,23 @@ export default function ChatPage() {
           <span className="text-zinc-500 text-xs tracking-widest uppercase">
             wspr / {screen === 'chat' && activeContact ? activeContact.name : screen}
           </span>
+          {screen === 'chat' && connected && callState === 'idle' && (
+            <button
+              onClick={async () => {
+                if (!sharedSecret || !activeContact || !identity) return
+                setShowCall(true)
+                await callManager.startCall(identity.publicKey, activeContact.publicKey, sharedSecret, false)
+              }}
+              className="text-zinc-700 hover:text-zinc-400 text-xs border border-zinc-800 hover:border-zinc-600 px-2 py-1 transition-all"
+              title="Voice call">
+              ☎
+            </button>
+          )}
+          {screen === 'chat' && callState === 'connected' && (
+            <span className="text-zinc-400 text-xs">
+              {Math.floor(callDuration/60).toString().padStart(2,'0')}:{(callDuration%60).toString().padStart(2,'0')}
+            </span>
+          )}
           {networkStatus === 'online' && connectedRelays > 0 && (
             <span className="text-zinc-700 text-xs hidden sm:inline">{connectedRelays}/{relayStatus.length} relays</span>
           )}
@@ -568,6 +626,98 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+      {/* Call overlay */}
+      {showCall && (
+        <div className="fixed inset-0 bg-zinc-950 bg-opacity-95 flex flex-col items-center justify-center z-50" style={{fontFamily:'monospace'}}>
+          <div className="w-full max-w-sm flex flex-col items-center gap-6 p-8">
+
+            {callState === 'calling' && (
+              <>
+                <div className="w-16 h-16 rounded-full border border-zinc-700 flex items-center justify-center">
+                  <span className="text-2xl">☎</span>
+                </div>
+                <p className="text-zinc-300 text-xs uppercase tracking-widest">Calling {activeContact?.name}...</p>
+                <p className="text-zinc-700 text-xs animate-pulse">Waiting for answer</p>
+                <button
+                  onClick={() => { callManager.hangup(identity?.publicKey||'', activeContact?.publicKey||'', sharedSecret!); setShowCall(false) }}
+                  className="border border-red-900 text-red-700 hover:text-red-500 text-xs px-8 py-3 uppercase tracking-widest transition-all">
+                  Cancel
+                </button>
+              </>
+            )}
+
+            {callState === 'receiving' && (
+              <>
+                <div className="w-16 h-16 rounded-full border border-zinc-600 flex items-center justify-center animate-pulse">
+                  <span className="text-2xl">☎</span>
+                </div>
+                <p className="text-zinc-300 text-xs uppercase tracking-widest">Incoming call</p>
+                <p className="text-zinc-600 text-xs">{activeContact?.name}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      if (!sharedSecret || !activeContact || !identity) return
+                      await callManager.answerCall(identity.publicKey, activeContact.publicKey, sharedSecret, incomingCallId, false)
+                    }}
+                    className="border border-zinc-500 text-zinc-300 hover:bg-zinc-800 text-xs px-8 py-3 uppercase tracking-widest transition-all">
+                    Answer
+                  </button>
+                  <button
+                    onClick={() => { callManager.hangup(identity?.publicKey||'', activeContact?.publicKey||'', sharedSecret!); setShowCall(false) }}
+                    className="border border-red-900 text-red-700 hover:text-red-500 text-xs px-8 py-3 uppercase tracking-widest transition-all">
+                    Decline
+                  </button>
+                </div>
+              </>
+            )}
+
+            {callState === 'connected' && (
+              <>
+                <div className="w-16 h-16 rounded-full border border-zinc-400 flex items-center justify-center">
+                  <span className="text-2xl">☎</span>
+                </div>
+                <p className="text-zinc-300 text-xs uppercase tracking-widest">{activeContact?.name}</p>
+                <p className="text-zinc-400 text-sm font-mono">
+                  {Math.floor(callDuration/60).toString().padStart(2,'0')}:{(callDuration%60).toString().padStart(2,'0')}
+                </p>
+                <p className="text-zinc-700 text-xs">DTLS-SRTP · P2P · Nostr signaling</p>
+
+                {/* Hidden audio element for remote stream */}
+                <audio ref={remoteVideoRef as React.RefObject<HTMLAudioElement>} autoPlay playsInline className="hidden" />
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      const stream = callManager.getLocalStream()
+                      if (stream) {
+                        stream.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
+                        setLocalMuted(m => !m)
+                      }
+                    }}
+                    className={`border text-xs px-6 py-3 uppercase tracking-widest transition-all ${localMuted ? 'border-zinc-500 text-zinc-300' : 'border-zinc-800 text-zinc-600 hover:border-zinc-600'}`}>
+                    {localMuted ? 'Unmute' : 'Mute'}
+                  </button>
+                  <button
+                    onClick={() => callManager.hangup(identity?.publicKey||'', activeContact?.publicKey||'', sharedSecret!)}
+                    className="border border-red-900 text-red-700 hover:text-red-500 text-xs px-8 py-3 uppercase tracking-widest transition-all">
+                    End
+                  </button>
+                </div>
+              </>
+            )}
+
+            {callState === 'ended' && (
+              <>
+                <p className="text-zinc-600 text-xs uppercase tracking-widest">Call ended</p>
+                <button onClick={() => setShowCall(false)}
+                  className="border border-zinc-800 text-zinc-600 text-xs px-6 py-2 uppercase tracking-widest transition-all">
+                  Close
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   )
 }
