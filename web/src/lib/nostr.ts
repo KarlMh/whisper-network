@@ -47,6 +47,7 @@ export class NostrChat {
   private onStatusChange: ((status: RelayStatus[]) => void) | null = null
   private relayStatus: Map<string, boolean> = new Map()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private connectedAt: number = 0
   private onMessageCb: ((msg: NostrMessage) => void) | null = null
   private myPubKey: string = ''
   private theirPubKey: string = ''
@@ -92,7 +93,7 @@ export class NostrChat {
 
     const filter = {
       kinds: [WSPR_KIND],
-      since: Math.floor(Date.now() / 1000) - 86400,
+      since: this.connectedAt || Math.floor(Date.now() / 1000),
     }
     ;(filter as Record<string, unknown>)['#t'] = [this.channelTag]
 
@@ -114,7 +115,7 @@ export class NostrChat {
           // Auto-reconnect after 5 seconds
           if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
           this.reconnectTimer = setTimeout(() => {
-            if (this.pool) this._connectPool()
+            this._connectPool()
           }, 5000)
         }
       }
