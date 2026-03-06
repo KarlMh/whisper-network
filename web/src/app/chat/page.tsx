@@ -16,12 +16,11 @@ import Link from 'next/link'
 import { CallManager, CallState } from '@/lib/call'
 import CallOverlay from '@/components/CallOverlay'
 
-const callManager = new CallManager()
 
 type Screen = 'unlock' | 'contacts' | 'chat' | 'settings'
-const nostrClient = new NostrChat()
-
 export default function ChatPage() {
+  const nostrClient = useRef(new NostrChat()).current
+  const callManager = useRef(new CallManager()).current
   const [screen, setScreen] = useState<Screen>('unlock')
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [unlockMode, setUnlockMode] = useState<'load' | 'create'>('load')
@@ -250,9 +249,14 @@ export default function ChatPage() {
   }
 
   const handleBackToContacts = () => {
-    nostrClient.disconnect(); setConnected(false); setNetworkStatus('offline')
+    nostrClient.disconnect()
+    callManager.stopListening()
+    setConnected(false); setNetworkStatus('offline')
     setActiveContact(null); setSharedSecret(undefined); sharedSecretRef.current = undefined
-    setMessages([]); setScreen('contacts')
+    onMessageRef.current = null
+    setMessages([])
+    setCallState('idle'); setShowCall(false)
+    setScreen('contacts')
   }
 
   const handleSend = async () => {
