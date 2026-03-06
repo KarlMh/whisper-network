@@ -24,3 +24,28 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Mobile safe areas */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+}
+
+/* Prevent bounce scroll on iOS */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fix input zoom on iOS — keep font-size >= 16px on inputs */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Smooth scrolling in message list */
+.messages-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}

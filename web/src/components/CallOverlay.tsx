@@ -70,10 +70,10 @@ export default function CallOverlay({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ fontFamily: 'monospace', backgroundColor: 'rgba(9,9,11,0.97)' }}>
+      style={{ fontFamily: 'monospace', backgroundColor: 'rgba(9,9,11,0.97)', height: '100dvh' }}>
       <audio ref={audioRef} autoPlay playsInline className="hidden" />
 
-      <div className="w-full max-w-sm flex flex-col items-center gap-8 p-8">
+      <div className="w-full max-w-sm flex flex-col items-center gap-6 px-6 py-8" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))', paddingTop: 'max(2rem, env(safe-area-inset-top))' }}>
 
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2 mb-1">
