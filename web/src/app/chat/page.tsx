@@ -254,6 +254,7 @@ export default function ChatPage() {
       callManager.onError = (err) => addLog(`CALL ERROR: ${err}`)
       callManager.onLocalVolume = (v) => setLocalVolume(v)
       callManager.onRemoteVolume = (v) => setRemoteVolume(v)
+      console.log("[CALL] listenForCalls my:", identity.publicKey.slice(0,8), "their:", contact.publicKey.slice(0,8))
       await callManager.listenForCalls(identity.publicKey, secret, contact.publicKey)
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Connection failed'}`)

@@ -92,6 +92,7 @@ export class CallManager {
 
     this.listenPool = new SimplePool()
     const ringTag = getRingTag(myPubKey, theirPubKey)
+    console.log("[CALL] listening for ring on tag:", ringTag, "my:", myPubKey.slice(0,8), "their:", theirPubKey.slice(0,8))
     const filter = { kinds: [CALL_KIND], since: Math.floor(Date.now() / 1000) - 5 }
     ;(filter as Record<string, unknown>)['#t'] = [ringTag]
 
@@ -164,6 +165,7 @@ export class CallManager {
 
     // Ring 3 times
     const ringTag = getRingTag(myPubKey, theirPubKey)
+    console.log("[CALL] ringing on tag:", ringTag, "my:", myPubKey.slice(0,8), "their:", theirPubKey.slice(0,8))
     for (let i = 0; i < 3; i++) {
       await this._publish(ringTag, sharedSecret, { type: 'ring', callId: this.callId, from: myPubKey })
       await new Promise(r => setTimeout(r, 800))
