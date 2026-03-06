@@ -1,16 +1,16 @@
 import { generateSecretKey, getPublicKey, finalizeEvent, SimplePool } from 'nostr-tools'
 import type { Event, Filter } from 'nostr-tools'
 
-// Nostr relays — all open source, community run, no single point of control
 const RELAYS = [
   'wss://relay.damus.io',
   'wss://relay.nostr.band',
   'wss://nos.lol',
   'wss://relay.snort.social',
   'wss://offchain.pub',
+  'wss://nostr.wine',
+  'wss://relay.primal.net',
 ]
 
-// Custom event kind in the ephemeral range — not stored permanently by relays
 const WSPR_KIND = 20001
 
 export type NostrMessage = {
@@ -22,8 +22,11 @@ export type NostrMessage = {
   fileName?: string
 }
 
-// Derive a deterministic Nostr channel tag from both pubkeys
-// Both parties compute the same tag — messages are found by filtering this tag
+export type RelayStatus = {
+  url: string
+  connected: boolean
+}
+
 function getChannelTag(myPubKey: string, theirPubKey: string): string {
   const sorted = [myPubKey, theirPubKey].sort()
   let hash = 0
@@ -41,28 +44,58 @@ export class NostrChat {
   private channelTag: string = ''
   private seen = new Set<string>()
   private sub: { close: () => void } | null = null
+  private onStatusChange: ((status: RelayStatus[]) => void) | null = null
+  private relayStatus: Map<string, boolean> = new Map()
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private onMessageCb: ((msg: NostrMessage) => void) | null = null
+  private myPubKey: string = ''
+  private theirPubKey: string = ''
 
   async connect(
     myPubKey: string,
     theirPubKey: string,
-    onMessage: (msg: NostrMessage) => void
+    onMessage: (msg: NostrMessage) => void,
+    onStatusChange?: (status: RelayStatus[]) => void
   ): Promise<void> {
+    this.myPubKey = myPubKey
+    this.theirPubKey = theirPubKey
     this.channelTag = getChannelTag(myPubKey, theirPubKey)
+    this.onMessageCb = onMessage
+    this.onStatusChange = onStatusChange || null
 
-    // Generate a fresh Nostr keypair for this session
-    // This is separate from the ECDH keypair — just for Nostr identity
-    // The actual message content is encrypted with the ECDH shared secret
     this.nostrPrivKey = generateSecretKey()
     this.nostrPubKey = getPublicKey(this.nostrPrivKey)
 
+    await this._connectPool()
+  }
+
+  private async _connectPool(): Promise<void> {
+    if (this.sub) { this.sub.close(); this.sub = null }
+    if (this.pool) { this.pool.close(RELAYS); this.pool = null }
+
     this.pool = new SimplePool()
 
-    // Subscribe to messages on our channel tag
+    // Track relay connectivity by attempting connections
+    RELAYS.forEach(url => {
+      this.relayStatus.set(url, false)
+      const ws = new WebSocket(url)
+      ws.onopen = () => {
+        this.relayStatus.set(url, true)
+        this._emitStatus()
+        ws.close()
+      }
+      ws.onerror = () => {
+        this.relayStatus.set(url, false)
+        this._emitStatus()
+      }
+    })
+
     const filter = {
       kinds: [WSPR_KIND],
-      '#t': [this.channelTag],
-      since: Math.floor(Date.now() / 1000) - 60,
+      since: Math.floor(Date.now() / 1000) - 86400,
     }
+    ;(filter as Record<string, unknown>)['#t'] = [this.channelTag]
+
     this.sub = this.pool.subscribeMany(
       RELAYS,
       filter as unknown as Filter,
@@ -70,24 +103,36 @@ export class NostrChat {
         onevent: (event: Event) => {
           if (this.seen.has(event.id)) return
           this.seen.add(event.id)
-          // Ignore our own messages — we already added them locally on send
           if (event.pubkey === this.nostrPubKey) return
           try {
             const msg: NostrMessage = JSON.parse(event.content)
             if (!msg.id || !msg.ciphertext) return
-            onMessage(msg)
-          } catch {
-            // Not a wspr message
-          }
+            if (this.onMessageCb) this.onMessageCb(msg)
+          } catch { /* not a wspr message */ }
+        },
+        onclose: () => {
+          // Auto-reconnect after 5 seconds
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+          this.reconnectTimer = setTimeout(() => {
+            if (this.pool) this._connectPool()
+          }, 5000)
         }
       }
     )
   }
 
+  private _emitStatus(): void {
+    if (!this.onStatusChange) return
+    const status: RelayStatus[] = RELAYS.map(url => ({
+      url,
+      connected: this.relayStatus.get(url) || false
+    }))
+    this.onStatusChange(status)
+  }
+
   async send(msg: NostrMessage): Promise<void> {
     if (!this.pool || !this.nostrPrivKey) throw new Error('Not connected')
     this.seen.add(msg.id)
-
     const event = finalizeEvent({
       kind: WSPR_KIND,
       created_at: Math.floor(Date.now() / 1000),
@@ -95,15 +140,24 @@ export class NostrChat {
       content: JSON.stringify(msg),
     }, this.nostrPrivKey)
 
-    await Promise.any(this.pool.publish(RELAYS, event))
+    // Try publishing, retry once if fails
+    try {
+      await Promise.any(this.pool.publish(RELAYS, event))
+    } catch {
+      await new Promise(r => setTimeout(r, 1000))
+      await Promise.any(this.pool.publish(RELAYS, event))
+    }
   }
 
   disconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.sub) this.sub.close()
     if (this.pool) this.pool.close(RELAYS)
     this.pool = null
     this.sub = null
     this.seen.clear()
+    this.onMessageCb = null
+    this.relayStatus.clear()
   }
 
   isConnected(): boolean {
@@ -112,5 +166,12 @@ export class NostrChat {
 
   getChannelTag(): string {
     return this.channelTag
+  }
+
+  getRelayStatus(): RelayStatus[] {
+    return RELAYS.map(url => ({
+      url: url.replace('wss://', ''),
+      connected: this.relayStatus.get(url) || false
+    }))
   }
 }
