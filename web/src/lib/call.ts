@@ -70,6 +70,7 @@ export class CallManager {
   private localStream: MediaStream | null = null
   private state: CallState = 'idle'
   private seenSignals = new Set<string>()
+  private signalBuffer: string[] = []
   private audioContext: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private remoteAnalyser: AnalyserNode | null = null
@@ -220,6 +221,16 @@ export class CallManager {
       }
     })
 
+    // Replay any buffered signals
+    if (this.signalBuffer.length > 0) {
+      console.log('[CALL] replaying', this.signalBuffer.length, 'buffered signals')
+      const buffered = [...this.signalBuffer]
+      this.signalBuffer = []
+      setTimeout(() => {
+        buffered.forEach(d => { if (this.peer) this.peer!.signal(JSON.parse(d)) })
+      }, 100)
+    }
+
     this.peer.on('signal', async (data) => {
       const signalTag = getSignalTag(this.callId)
       const sig: CallSignal = {
@@ -267,10 +278,13 @@ export class CallManager {
             if (signal.from === myPubKey) return
             if (signal.callId !== this.callId) { console.log('[CALL] wrong callId'); return }
             if (signal.type === 'hangup') { this._cleanup(); return }
-            if (signal.data && this.peer) {
-              this.peer.signal(JSON.parse(signal.data))
-            } else if (!this.peer) {
-              console.log('[CALL] no peer to signal')
+            if (signal.data) {
+              if (this.peer) {
+                this.peer.signal(JSON.parse(signal.data))
+              } else {
+                console.log('[CALL] buffering signal, no peer yet')
+                this.signalBuffer.push(signal.data)
+              }
             }
           } catch (e) { console.log('[CALL] signal error', e) }
         }
@@ -363,6 +377,7 @@ export class CallManager {
     this.analyser = null
     this.remoteAnalyser = null
     this.seenSignals.clear()
+    this.signalBuffer = []
     this._setState('ended')
   }
 
