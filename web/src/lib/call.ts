@@ -66,17 +66,18 @@ export class CallManager {
     theirPubKey: string
   ): Promise<void> {
     this.sharedSecret = sharedSecret
-    this.pool = new SimplePool()
+    // Use separate pool for listening so it doesn't get closed during calls
+    const listenPool = new SimplePool()
 
     // Listen for incoming ring signals
     const filter = {
       kinds: [CALL_KIND],
-      since: Math.floor(Date.now() / 1000) - 10,
+      since: Math.floor(Date.now() / 1000) - 30,
     }
-    const tag = `wspr_call_ring_${[myPubKey, theirPubKey].sort().join('').slice(0, 16)}`
+    const tag = getCallTag(myPubKey, theirPubKey, "ring")
     ;(filter as Record<string, unknown>)['#t'] = [tag]
 
-    this.sub = this.pool.subscribeMany(
+    this.sub = listenPool.subscribeMany(
       CALL_RELAYS,
       filter as unknown as Filter,
       {
@@ -171,7 +172,7 @@ export class CallManager {
     this.peer.on('close', () => this._setState('ended'))
 
     // Send ring signal
-    const ringTag = `wspr_call_ring_${[myPubKey, theirPubKey].sort().join('').slice(0, 16)}`
+    const ringTag = getCallTag(myPubKey, theirPubKey, "ring")
     await this._sendSignalToTag(myPubKey, sharedSecret, ringTag, {
       type: 'ring',
       callId: this.callId,

@@ -223,9 +223,7 @@ export default function ChatPage() {
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream
       }
       callManager.onError = (err) => addLog(`CALL ERROR: ${err}`)
-      if (secret && contact) {
-        await callManager.listenForCalls(identity.publicKey, secret, contact.publicKey)
-      }
+      await callManager.listenForCalls(identity.publicKey, secret, contact.publicKey)
     } catch (e: unknown) {
       addLog(`ERROR: ${e instanceof Error ? e.message : 'Connection failed'}`)
       setNetworkStatus('offline')
