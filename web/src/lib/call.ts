@@ -324,6 +324,11 @@ export class CallManager {
     if (this.listenPool) { this.listenPool.close(CALL_RELAYS); this.listenPool = null }
   }
 
+  private _setState(state: CallState): void {
+    this.state = state
+    this.onStateChange?.(state)
+  }
+
   private _cleanup(): void {
     if (this.voiceActivityTimer) clearInterval(this.voiceActivityTimer)
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null }
