@@ -316,48 +316,43 @@ export default function ChatPage() {
     <main className="bg-zinc-950 text-zinc-300 flex flex-col" style={{ fontFamily: 'monospace', height: '100dvh', overflow: 'hidden' }}>
 
       {/* Header */}
-      <div className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          {screen === 'chat' && <button onClick={handleBackToContacts} className="text-zinc-600 hover:text-zinc-400 text-xs transition-all">←</button>}
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${networkStatus === 'online' ? 'bg-zinc-400' : networkStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-zinc-700'}`} />
-          <span className="text-zinc-500 text-xs tracking-widest uppercase">
-            wspr / {screen === 'chat' && activeContact ? activeContact.name : screen}
-          </span>
-          {screen === 'chat' && connected && callState === 'idle' && (
-            <button
-              onClick={async () => {
-                if (!sharedSecret || !activeContact || !identity) return
-                setShowCall(true)
-                await callManager.startCall(identity.publicKey, activeContact.publicKey, sharedSecret, false)
-              }}
-              className="text-zinc-700 hover:text-zinc-400 text-xs border border-zinc-800 hover:border-zinc-600 px-2 py-1 transition-all"
-              title="Voice call">
-              ☎
-            </button>
+      <div className="border-b border-zinc-800 px-3 py-2 flex items-center justify-between flex-shrink-0 gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {screen === 'chat' && (
+            <button onClick={handleBackToContacts} className="text-zinc-500 hover:text-zinc-300 text-base px-1 flex-shrink-0">←</button>
           )}
+          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${networkStatus === 'online' ? 'bg-zinc-400' : networkStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-zinc-700'}`} />
+          <span className="text-zinc-500 text-xs tracking-widest uppercase truncate">
+            {screen === 'chat' && activeContact ? activeContact.name : 'wspr'}
+          </span>
           {screen === 'chat' && callState === 'connected' && (
-            <span className="text-zinc-400 text-xs">
+            <span className="text-zinc-400 text-xs font-mono flex-shrink-0">
               {Math.floor(callDuration/60).toString().padStart(2,'0')}:{(callDuration%60).toString().padStart(2,'0')}
             </span>
           )}
-          {networkStatus === 'online' && connectedRelays > 0 && (
-            <span className="text-zinc-700 text-xs hidden sm:inline">{connectedRelays}/{relayStatus.length} relays</span>
-          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/app" className="text-zinc-700 hover:text-zinc-400 text-xs transition-all uppercase tracking-widest">← back</Link>
-          {identity && screen !== 'settings' && (
-            <button onClick={() => setScreen('settings')} className="text-xs text-zinc-600 hover:text-zinc-300 border border-zinc-800 hover:border-zinc-600 px-3 py-1 transition-all ml-2">SETTINGS</button>
-          )}
-          {screen === 'settings' && (
-            <button onClick={() => setScreen('contacts')} className="text-xs text-zinc-600 hover:text-zinc-300 border border-zinc-800 hover:border-zinc-600 px-3 py-1 transition-all ml-2">BACK</button>
-          )}
-          {identity && (
-            <button onClick={handleLock} className="text-xs text-zinc-700 hover:text-zinc-400 border border-zinc-800 hover:border-zinc-600 px-3 py-1 transition-all">LOCK</button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {screen === 'chat' && connected && (callState === 'idle' || callState === 'ended') && (
+            <button onClick={async () => {
+              if (!sharedSecret || !activeContact || !identity) return
+              setCallState('idle')
+              setShowCall(true)
+              await callManager.startCall(identity.publicKey, activeContact.publicKey, sharedSecret, false)
+            }} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all">☎</button>
           )}
           {screen === 'chat' && (
-            <button onClick={() => setShowSidebar(v => !v)} className="text-xs text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-3 py-1 transition-all">INFO</button>
+            <button onClick={() => setShowSidebar(v => !v)} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all text-xs">≡</button>
           )}
+          {identity && screen !== 'settings' && screen !== 'chat' && (
+            <button onClick={() => setScreen('settings')} className="text-zinc-600 hover:text-zinc-300 border border-zinc-800 px-2 py-1 transition-all text-xs hidden sm:block">SET</button>
+          )}
+          {screen === 'settings' && (
+            <button onClick={() => setScreen('contacts')} className="text-zinc-600 text-xs border border-zinc-800 px-2 py-1">←</button>
+          )}
+          {identity && (
+            <button onClick={handleLock} className="text-zinc-700 hover:text-zinc-400 border border-zinc-800 px-2 py-1 transition-all text-xs">LOCK</button>
+          )}
+          <Link href="/app" className="text-zinc-700 hover:text-zinc-400 text-xs border border-zinc-800 px-2 py-1 hidden sm:block">←</Link>
         </div>
       </div>
 
