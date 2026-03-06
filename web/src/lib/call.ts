@@ -98,6 +98,8 @@ export class CallManager {
     this.listenSharedSecret = sharedSecret
     this.listenTheirPubKey = theirPubKey
     this.seenSignals.clear()
+    this.signalBuffer = []
+    this.seenSignals.clear()
     this.listenPool = new SimplePool()
     const ringTag = getRingTag(myPubKey, theirPubKey)
     console.log("[CALL] listening for ring on tag:", ringTag, "my:", myPubKey.slice(0,8), "their:", theirPubKey.slice(0,8))

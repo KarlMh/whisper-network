@@ -218,6 +218,10 @@ export default function ChatPage() {
 
       // Listen for incoming calls
       callManager.onIncomingCall = (callId, from) => {
+        // Full reset before showing incoming call UI
+        setRemoteStream(null)
+        setCallDuration(0)
+        setLocalMuted(false)
         setIncomingCallId(callId)
         setIncomingCallFrom(from)
         setCallState('receiving')
@@ -232,6 +236,8 @@ export default function ChatPage() {
           if (callTimerRef.current) clearInterval(callTimerRef.current)
           setCallDuration(0)
           setRemoteStream(null)
+          setLocalMuted(false)
+          setIncomingCallId('')
           setTimeout(() => {
             setShowCall(false)
             setCallState('idle')
